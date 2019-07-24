@@ -1,1 +1,1 @@
-web: gunicorn invoicingtoolbackendapp.wsgi --log-file -
+web: gunicorn invoicingtoolbackend.wsgi --log-file -
