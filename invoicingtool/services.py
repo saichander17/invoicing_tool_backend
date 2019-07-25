@@ -4,6 +4,7 @@ from django.utils import timezone
 from background_task import background
 import openpyxl, csv
 from django.core.files.storage import FileSystemStorage
+from django.db import transaction
 
 class InvoicesService(object):
   """docstring for ClassName"""
@@ -42,7 +43,7 @@ class InvoiceCreatorService(object):
       })
     if serializer.is_valid():
       serializer.save()
-      return True
+      return serializer.data
     else:
       return False
 

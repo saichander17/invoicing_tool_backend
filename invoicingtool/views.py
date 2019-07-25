@@ -31,9 +31,9 @@ def create(request):
   body_unicode = request.body.decode('utf-8')
   request_body = json.loads(body_unicode)
   invoices_creator_service = InvoiceCreatorService()
-  
-  if invoices_creator_service.create(request_body):
-    return JsonResponse({"success": True})
+  resp = invoices_creator_service.create(request_body)
+  if resp:
+    return JsonResponse({"success": True, "invoice": resp})
   else:
     return JsonResponse({"success": False})
 
