@@ -80,62 +80,115 @@ class InvoiceUploaderService(object):
 
 
 class BulkInvoiceCreatorService(object):
-  
-  @background(schedule=10)
-  def create(file_id):
+  # ToDo: Add transaction
+  # @background(schedule=10)
+  def create(self, file_id):
     file_headers = ["s.no", "customername", "productname", "quantity", "amount", "taxpercent", "discountpercent"]
     uploaded_file = UploadedInvoiceFile.objects.get(id=file_id)
     if uploaded_file==None:
       return False
     file_path = uploaded_file.path
     if(file_path.endswith('csv')):
-      f = open(file_path)
-      uploaded_file.status='processing'
-      uploaded_file.save()
-      # reader = csv.reader(f)
-      reader = csv.DictReader(f,fieldnames=file_headers)
-      next(reader, None)
-      next(reader, None)
-      next(reader, None)
-      headers = next(reader, None)
-      old_obj = None
-      sub_total = 0
-      creator_service = InvoiceCreatorService()
-      for row in reader:
-        if(row['s.no']!=None and row['s.no']!=""):
-          try:
-            float(row['s.no'])
-          except ValueError:
-            break
-        if row['s.no']:
-          if old_obj!=None:
-            old_obj["pricing"]["subtotal"] = sub_total
-            old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
-            old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
-            old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
-            if not creator_service.create(old_obj):
-              uploaded_file.status='failure'
-              uploaded_file.save()
-              raise Exception('Some error occurred while saving an invoice')
-          sub_total = 0
-          old_obj = {"customer_info": {}, "product_info": {}, "pricing": {}}
-        old_obj["customer_info"]["name"] = old_obj["customer_info"].get("name") or row["customername"]
-        old_obj["product_info"] = old_obj["product_info"] or []
-        old_obj["product_info"].append({"name": row["productname"], "amount": float(row["amount"]), "quantity": float(row["quantity"])})
-        old_obj["pricing"] = old_obj["pricing"] or {"tax_percent": float(row["taxpercent"]), "discount_percent": float(row["discountpercent"])}
-        sub_total += float(row["amount"])
-      if old_obj!=None:
-        old_obj["pricing"]["total_amount"] = sub_total - sub_total*old_obj["pricing"]["discount_percent"] + sub_total*old_obj["pricing"]["tax_percent"]
-        if not creator_service.create(old_obj):
-          uploaded_file.status='failure'
-          uploaded_file.save()
-          raise Exception('Some error occurred while saving an invoice')
-      uploaded_file.status='success'
-      uploaded_file.percentage_processed = 100
-      uploaded_file.save()
+      self.parseCSV(uploaded_file)
     else:
-      wb = openpyxl.load_workbook(file_path)
-      sheets = wb.sheetnames
-      worksheet = wb[sheets[0]]
+      self.parseXl(uploaded_file)
     return True
-    
+
+  def parseCSV(self, uploaded_file):
+    file_headers = ["s.no", "customername", "productname", "quantity", "amount", "taxpercent", "discountpercent"]
+    file_path = uploaded_file.path
+    f = open(file_path)
+    uploaded_file.status='processing'
+    uploaded_file.save()
+    # reader = csv.reader(f)
+    reader = csv.DictReader(f,fieldnames=file_headers)
+    next(reader, None)
+    next(reader, None)
+    next(reader, None)
+    headers = next(reader, None)
+    old_obj = None
+    sub_total = 0
+    creator_service = InvoiceCreatorService()
+    for row in reader:
+      if(row['s.no']!=None and row['s.no']!=""):
+        try:
+          float(row['s.no'])
+        except ValueError:
+          break
+      if row['s.no']:
+        if old_obj!=None:
+          old_obj["pricing"]["subtotal"] = sub_total
+          old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
+          old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
+          old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
+          if not creator_service.create(old_obj):
+            uploaded_file.status='failure'
+            uploaded_file.save()
+            raise Exception('Some error occurred while saving an invoice')
+        sub_total = 0
+        old_obj = {"customer_info": {}, "product_info": {}, "pricing": {}}
+      old_obj["customer_info"]["name"] = old_obj["customer_info"].get("name") or row["customername"]
+      old_obj["product_info"] = old_obj["product_info"] or []
+      old_obj["product_info"].append({"name": row["productname"], "amount": float(row["amount"]), "quantity": float(row["quantity"])})
+      old_obj["pricing"] = old_obj["pricing"] or {"tax_percent": float(row["taxpercent"]), "discount_percent": float(row["discountpercent"])}
+      sub_total += float(row["amount"])
+    if old_obj!=None:
+      old_obj["pricing"]["subtotal"] = sub_total
+      old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
+      old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
+      old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
+      if not creator_service.create(old_obj):
+        uploaded_file.status='failure'
+        uploaded_file.save()
+        raise Exception('Some error occurred while saving an invoice')
+    uploaded_file.status='success'
+    uploaded_file.percentage_processed = 100
+    uploaded_file.save()
+  
+  def parseXl(self, uploaded_file):
+    file_headers = ["s.no", "customername", "productname", "quantity", "amount", "taxpercent", "discountpercent"]
+    file_path = uploaded_file.path
+    wb = openpyxl.load_workbook(file_path)
+    sheets = wb.sheetnames
+    worksheet = wb[sheets[0]]
+    old_obj = None
+    sub_total = 0
+    creator_service = InvoiceCreatorService()
+    for row in worksheet.iter_rows(min_row=2):
+      # for idx, val in enumerate(row):
+      if(row[0].value!=None):
+        if old_obj!=None:
+          old_obj["pricing"]["subtotal"] = sub_total
+          old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
+          old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
+          old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
+          if not creator_service.create(old_obj):
+            uploaded_file.status='failure'
+            uploaded_file.save()
+            raise Exception('Some error occurred while saving an invoice')
+        sub_total = 0
+        old_obj = {"customer_info": {}, "product_info": {}, "pricing": {}}
+      old_obj["customer_info"]["name"] = old_obj["customer_info"].get("name") or row[file_headers.index('customername')].value
+      old_obj["product_info"] = old_obj["product_info"] or []
+      old_obj["product_info"].append({"name": row[file_headers.index("productname")].value, "amount": float(row[file_headers.index('amount')].value), "quantity": float(row[file_headers.index('quantity')].value)})
+      old_obj["pricing"] = old_obj["pricing"] or {"tax_percent": float(row[file_headers.index('taxpercent')].value), "discount_percent": float(row[file_headers.index('discountpercent')].value)}
+      sub_total += float(row[file_headers.index('amount')].value)
+    if old_obj!=None:
+      old_obj["pricing"]["subtotal"] = sub_total
+      old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
+      old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
+      old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
+      if not creator_service.create(old_obj):
+        uploaded_file.status='failure'
+        uploaded_file.save()
+        raise Exception('Some error occurred while saving an invoice')
+    uploaded_file.status='success'
+    uploaded_file.percentage_processed = 100
+    uploaded_file.save()
+
+      # for cell in row:
+      #   print(cell)
+    # for row in worksheet.values:
+    #   for value in row:
+    #     print(value)
+    # breakpoint()
