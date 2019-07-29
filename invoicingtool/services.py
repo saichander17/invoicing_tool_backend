@@ -109,34 +109,13 @@ class BulkInvoiceCreatorService(object):
     old_obj = None
     sub_total = 0
     creator_service = InvoiceCreatorService()
+    access_obj = {}
+    for idx,val in enumerate(file_headers):
+      access_obj[val] = val
     for row in reader:
-      if(row['s.no']!=None and row['s.no']!=""):
-        try:
-          float(row['s.no'])
-        except ValueError:
-          break
-      if row['s.no']:
-        if old_obj!=None:
-          old_obj["pricing"]["subtotal"] = sub_total
-          old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
-          old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
-          old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
-          if not creator_service.create(old_obj):
-            uploaded_file.status='failure'
-            uploaded_file.save()
-            raise Exception('Some error occurred while saving an invoice')
-        sub_total = 0
-        old_obj = {"customer_info": {}, "product_info": {}, "pricing": {}}
-      old_obj["customer_info"]["name"] = old_obj["customer_info"].get("name") or row["customername"]
-      old_obj["product_info"] = old_obj["product_info"] or []
-      old_obj["product_info"].append({"name": row["productname"], "amount": float(row["amount"]), "quantity": float(row["quantity"])})
-      old_obj["pricing"] = old_obj["pricing"] or {"tax_percent": float(row["taxpercent"]), "discount_percent": float(row["discountpercent"])}
-      sub_total += float(row["amount"])
+      old_obj, sub_total = self.create_old_obj(old_obj, row, access_obj, sub_total, creator_service)
     if old_obj!=None:
-      old_obj["pricing"]["subtotal"] = sub_total
-      old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
-      old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
-      old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
+      self.calculateTotalValues(old_obj, sub_total)
       if not creator_service.create(old_obj):
         uploaded_file.status='failure'
         uploaded_file.save()
@@ -154,30 +133,13 @@ class BulkInvoiceCreatorService(object):
     old_obj = None
     sub_total = 0
     creator_service = InvoiceCreatorService()
-    for row in worksheet.iter_rows(min_row=2):
-      # for idx, val in enumerate(row):
-      if(row[0].value!=None):
-        if old_obj!=None:
-          old_obj["pricing"]["subtotal"] = sub_total
-          old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
-          old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
-          old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
-          if not creator_service.create(old_obj):
-            uploaded_file.status='failure'
-            uploaded_file.save()
-            raise Exception('Some error occurred while saving an invoice')
-        sub_total = 0
-        old_obj = {"customer_info": {}, "product_info": {}, "pricing": {}}
-      old_obj["customer_info"]["name"] = old_obj["customer_info"].get("name") or row[file_headers.index('customername')].value
-      old_obj["product_info"] = old_obj["product_info"] or []
-      old_obj["product_info"].append({"name": row[file_headers.index("productname")].value, "amount": float(row[file_headers.index('amount')].value), "quantity": float(row[file_headers.index('quantity')].value)})
-      old_obj["pricing"] = old_obj["pricing"] or {"tax_percent": float(row[file_headers.index('taxpercent')].value), "discount_percent": float(row[file_headers.index('discountpercent')].value)}
-      sub_total += float(row[file_headers.index('amount')].value)
+    access_obj = {}
+    for idx,val in enumerate(file_headers):
+      access_obj[val] = idx
+    for row in worksheet.iter_rows(min_row=2, values_only=True):
+      old_obj, sub_total = self.create_old_obj(old_obj, row, access_obj, sub_total, creator_service)
     if old_obj!=None:
-      old_obj["pricing"]["subtotal"] = sub_total
-      old_obj["pricing"]["tax"] = (sub_total*old_obj["pricing"]["tax_percent"])/100.0
-      old_obj["pricing"]["discount"] = (sub_total*old_obj["pricing"]["discount_percent"])/100.0
-      old_obj["pricing"]["total_amount"] = sub_total - old_obj["pricing"]["discount"] + old_obj["pricing"]["tax"]
+      self.calculateTotalValues(old_obj, sub_total)
       if not creator_service.create(old_obj):
         uploaded_file.status='failure'
         uploaded_file.save()
@@ -186,9 +148,35 @@ class BulkInvoiceCreatorService(object):
     uploaded_file.percentage_processed = 100
     uploaded_file.save()
 
-      # for cell in row:
-      #   print(cell)
-    # for row in worksheet.values:
-    #   for value in row:
-    #     print(value)
+  def create_old_obj(self, old_obj, row, access_obj, sub_total, creator_service):
+    file_headers = ["s.no", "customername", "productname", "quantity", "amount", "taxpercent", "discountpercent"]
+    if(row[access_obj["s.no"]]!=None and row[access_obj["s.no"]]!=""):
+      try:
+        float(row[access_obj["s.no"]])
+      except ValueError:
+        return old_obj,sub_total
+        # print(row[access_obj["s.no"]])
+        # raise Exception('Invalid invoice uploaded')
+    if(row[access_obj["s.no"]]!=None and row[access_obj["s.no"]]!=""):
+      if old_obj!=None:
+        self.calculateTotalValues(old_obj, sub_total)
+        if not creator_service.create(old_obj):
+          uploaded_file.status='failure'
+          uploaded_file.save()
+          raise Exception('Some error occurred while saving an invoice')
+      sub_total = 0
+      old_obj = {"customer_info": {}, "product_info": {}, "pricing": {}}
     # breakpoint()
+    old_obj["customer_info"]["name"] = old_obj["customer_info"].get("name") or row[access_obj['customername']]
+    old_obj["product_info"] = old_obj["product_info"] or []
+    old_obj["product_info"].append({"name": row[access_obj["productname"]], "amount": float(row[access_obj['amount']]), "quantity": float(row[access_obj['quantity']])})
+    old_obj["pricing"] = old_obj["pricing"] or {"tax_percent": float(row[access_obj['taxpercent']]), "discount_percent": float(row[access_obj['discountpercent']])}
+    sub_total += float(row[access_obj['amount']])
+    return old_obj, sub_total
+
+  def calculateTotalValues(self, obj, sub_total):
+    obj["pricing"]["subtotal"] = sub_total
+    obj["pricing"]["tax"] = (sub_total*obj["pricing"]["tax_percent"])/100.0
+    obj["pricing"]["discount"] = (sub_total*obj["pricing"]["discount_percent"])/100.0
+    obj["pricing"]["total_amount"] = sub_total - obj["pricing"]["discount"] + obj["pricing"]["tax"]
+
